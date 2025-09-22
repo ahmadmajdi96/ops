@@ -13,6 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Configure insecure registry
+        run: |
+          echo '{ "insecure-registries":["cortanexai.com:5000"] }' | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
 
       - name: Log in to Nexus
         uses: docker/login-action@v2
@@ -36,3 +40,7 @@ jobs:
           git config user.email "ahmad.majdi96@gmail.com"
           git commit -am "ci: update prod image to ${github.ref_name}"
           git push
+
+
+permissions:
+  contents: write
