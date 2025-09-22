@@ -1,0 +1,7 @@
+resources:
+  - ../../base
+
+namePrefix: prod-
+images:
+  - name: cortanexai.com:5000/ops
+    newTag: v1.0.0
