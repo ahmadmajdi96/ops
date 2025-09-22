@@ -1,7 +1,9 @@
 resources:
-  - ../../base
+- ../../base
 
 namePrefix: dev-
 images:
-  - name: cortanexai.com:5000/ops
-    newTag: dev
+- name: cortanexai.com:5000/ops
+  newTag: dev
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
