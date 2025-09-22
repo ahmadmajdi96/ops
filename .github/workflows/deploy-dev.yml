@@ -1,8 +1,8 @@
 name: Build & Deploy to Dev
 on:
   push:
-    tags:
-      - 'dev'
+    branches:
+      - main
 
 env:
   IMAGE_NAME: ahmadmajdi96/ops
