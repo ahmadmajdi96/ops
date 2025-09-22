@@ -37,8 +37,9 @@ jobs:
           kustomize edit set image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
           git config user.name "ahmadmajdi96"
           git config user.email "ahmad.majdi96@gmail.com"
-          git commit -am "ci: update dev image"
-          git push
+          git add .
+          git diff --cached --quiet || git commit -m "ci: update dev image"
+          git push origin HEAD:${GITHUB_REF#refs/heads/}
 
 permissions:
   contents: write

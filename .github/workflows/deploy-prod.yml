@@ -38,7 +38,10 @@ jobs:
           kustomize edit set image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
           git config user.name "ahmadmajdi96"
           git config user.email "ahmad.majdi96@gmail.com"
-          git commit -am "ci: update prod image to ${github.ref_name}"
+          # git commit -am "ci: update prod image to ${github.ref_name}"
+          git add .
+          git diff --cached --quiet || git commit -m "ci: update prod image to ${github.ref_name}"
+          git push origin HEAD:${GITHUB_REF#refs/heads/}
           git push
 
 
