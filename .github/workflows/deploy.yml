@@ -1,0 +1,68 @@
+name: Deploy to Docker Swarm
+
+on:
+  push:
+    branches: [main, develop, staging]
+
+env:
+  REGISTRY: registry.cortanexai.com
+  IMAGE_NAME: myapp
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Login to Private Registry
+      uses: docker/login-action@v2
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ secrets.REGISTRY_USERNAME }}
+        password: ${{ secrets.REGISTRY_PASSWORD }}
+
+    - name: Build and Push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Deploy to Swarm
+      uses: appleboy/ssh-action@v0.1.10
+      with:
+        host: ${{ secrets.SWARM_HOST }}
+        username: root
+        key: ${{ secrets.SWARM_SSH_KEY }}
+        script: |
+          echo "Deploying application..."
+          cd /opt/swarm/apps/myapp
+
+          # Pull latest image
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+          # Deploy stack
+          docker stack deploy -c docker-compose.yml myapp --with-registry-auth
+
+          # Cleanup old images
+          docker image prune -f
+
+    - name: Verify deployment
+      uses: appleboy/ssh-action@v0.1.10
+      with:
+        host: ${{ secrets.SWARM_HOST }}
+        username: root
+        key: ${{ secrets.SWARM_SSH_KEY }}
+        script: |
+          echo "Checking services..."
+          docker service ls
+          echo "Checking tasks..."
+          docker service ps myapp_app
