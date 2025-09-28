@@ -3,12 +3,14 @@ set -e
 
 ENVIRONMENT=$1
 COMMIT_SHA=$2
-APP_NAME="${{ github.event.repository.name }}"  # This will be replaced by GitHub
+APP_NAME="your-app-name"  # Change this to match your app
 REGISTRY_URL="157.180.69.112:5000"
 
 echo "🚀 Deploying to $ENVIRONMENT environment..."
 
-# Use direct IP in image tags
+# No login required for insecure registry
+docker pull $REGISTRY_URL/$APP_NAME:$ENVIRONMENT-latest
+
 IMAGE_TAG="157.180.69.112:5000/$APP_NAME:$ENVIRONMENT-latest"
 
 
