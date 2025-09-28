@@ -1,7 +1,0 @@
-resources:
-  - deployment.yaml
-  - service.yaml
-
-images:
-  - name: cortanexai.com:5000/ops
-    newTag: latest
