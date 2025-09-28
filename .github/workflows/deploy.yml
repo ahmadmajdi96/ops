@@ -91,3 +91,7 @@ jobs:
           script: |
             cd /opt/swarm/apps/${{ env.IMAGE_NAME }}
             ./deploy.sh prod ${{ github.sha }}
+
+
+
+
