@@ -3,91 +3,103 @@ name: Deploy FastAPI to Docker Swarm
 on:
   push:
     branches: [main, develop]
-  pull_request:
-    branches: [main]
 
 env:
-  REGISTRY: ${{ secrets.REGISTRY_URL }}
   IMAGE_NAME: ${{ github.event.repository.name }}
 
 jobs:
-  test:
+  build-and-push:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+    - name: Configure Docker for insecure registry
+      run: |
+        echo '{"insecure-registries": ["157.180.69.112:5000"]}' | sudo tee /etc/docker/daemon.json
+        sudo systemctl restart docker
 
-      # - name: Run tests
-      #   run: |
-      #     python -m pytest
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: |
+          157.180.69.112:5000/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-${{ github.sha }}
+          157.180.69.112:5000/${{ env.IMAGE_NAME }}:${{ github.ref_name }}-latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
 
-  build-and-push:
-    needs: test
+  deploy:
+    needs: build-and-push
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        environment: [dev, prod]
+        include:
+          - branch: develop
+            environment: dev
+            domain: dev.${{ github.event.repository.name }}.cortanexai.com
+          - branch: main
+            environment: prod
+            domain: ${{ github.event.repository.name }}.cortanexai.com
+    if: github.ref == 'refs/heads/${{ matrix.branch }}'
+
     steps:
-      - uses: actions/checkout@v4
+    - name: Deploy to Swarm
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.SWARM_HOST }}
+        username: root
+        key: ${{ secrets.SWARM_SSH_KEY }}
+        script: |
+          set -e
+          echo "🚀 Starting deployment for ${{ matrix.environment }} environment..."
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+          APP_NAME="${{ github.event.repository.name }}"
+          ENVIRONMENT="${{ matrix.environment }}"
+          DOMAIN="${{ matrix.domain }}"
+          STACK_NAME="$APP_NAME-$ENVIRONMENT"
 
-      - name: Login to Docker Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ secrets.REGISTRY_URL }}
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
+          # No login required for insecure registry
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ secrets.REGISTRY_URL }}/${{ env.IMAGE_NAME }}:${{ matrix.environment }}-${{ github.sha }}
-            ${{ secrets.REGISTRY_URL }}/${{ env.IMAGE_NAME }}:${{ matrix.environment }}-latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Create app directory
+          mkdir -p /opt/swarm/apps/$APP_NAME
+          cd /opt/swarm/apps/$APP_NAME
 
-  deploy-dev:
-    if: github.ref == 'refs/heads/develop'
-    needs: [test, build-and-push]
-    runs-on: ubuntu-latest
-    environment: development
-    steps:
-      - name: Deploy to Development
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SWARM_HOST }}
-          username: root
-          key: ${{ secrets.SWARM_SSH_KEY }}
-          script: |
-            cd /opt/swarm/apps/${{ env.IMAGE_NAME }}
-            ./deploy.sh dev ${{ github.sha }}
+          # Create docker-compose file
+          cat > docker-compose.$ENVIRONMENT.yml << DOCKERCOMPOSE
+          version: '3.8'
+          services:
+            app:
+              image: 157.180.69.112:5000/$APP_NAME:${{ github.ref_name }}-latest
+              deploy:
+                replicas: 1
+                update_config:
+                  parallelism: 1
+                  delay: 10s
+                restart_policy:
+                  condition: on-failure
+              networks:
+                - traefik-public
+              labels:
+                - "traefik.enable=true"
+                - "traefik.docker.network=traefik-public"
+                - "traefik.http.services.$STACK_NAME.loadbalancer.server.port=8000"
+                - "traefik.http.routers.$STACK_NAME.rule=Host(\`$DOMAIN\`)"
+                - "traefik.http.routers.$STACK_NAME.entrypoints=web"
+          networks:
+            traefik-public:
+              external: true
+          DOCKERCOMPOSE
 
-  deploy-prod:
-    if: github.ref == 'refs/heads/main'
-    needs: [test, build-and-push]
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - name: Deploy to Production
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SWARM_HOST }}
-          username: root
-          key: ${{ secrets.SWARM_SSH_KEY }}
-          script: |
-            cd /opt/swarm/apps/${{ env.IMAGE_NAME }}
-            ./deploy.sh prod ${{ github.sha }}
+          # Deploy stack
+          docker stack deploy -c docker-compose.$ENVIRONMENT.yml $STACK_NAME --with-registry-auth
+
+          echo "⏳ Waiting for service to start..."
+          sleep 30
+
+          echo "✅ Deployment completed for $DOMAIN"
+          echo "🌐 Access your app at: http://$DOMAIN"
