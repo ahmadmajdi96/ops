@@ -8,6 +8,15 @@ REGISTRY_URL="157.180.69.112:5000"
 
 echo "🚀 Deploying $APP_NAME to $ENVIRONMENT environment..."
 
+
+if ! sudo grep -q "157.180.69.112:5000" /etc/docker/daemon.json 2>/dev/null; then
+    echo "Configuring Docker for insecure registry..."
+    sudo systemctl stop docker
+    echo '{"insecure-registries": ["157.180.69.112:5000"]}' | sudo tee /etc/docker/daemon.json
+    sudo systemctl start docker
+    sleep 5
+fi
+
 # Login to registry
 docker login $REGISTRY_URL -u $REGISTRY_USERNAME -p $REGISTRY_PASSWORD
 
