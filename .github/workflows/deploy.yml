@@ -33,13 +33,22 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
-  deploy-dev:
+  deploy:
     needs: build-and-push
-    if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
-    environment: development
+    strategy:
+      matrix:
+        include:
+          - branch: develop
+            environment: dev
+            domain: dev.${{ github.event.repository.name }}.cortanexai.com
+          - branch: main
+            environment: prod
+            domain: ${{ github.event.repository.name }}.cortanexai.com
+    if: github.ref == 'refs/heads/${{ matrix.branch }}'
+
     steps:
-    - name: Deploy to Development
+    - name: Deploy to Swarm
       uses: appleboy/ssh-action@v1.0.3
       with:
         host: ${{ secrets.SWARM_HOST }}
@@ -47,12 +56,14 @@ jobs:
         key: ${{ secrets.SWARM_SSH_KEY }}
         script: |
           set -e
-          echo "🚀 Starting deployment for development environment..."
+          echo "🚀 Starting deployment for ${{ matrix.environment }} environment..."
 
           APP_NAME="${{ github.event.repository.name }}"
-          ENVIRONMENT="dev"
-          DOMAIN="dev.$APP_NAME.cortanexai.com"
+          ENVIRONMENT="${{ matrix.environment }}"
+          DOMAIN="${{ matrix.domain }}"
           STACK_NAME="$APP_NAME-$ENVIRONMENT"
+
+          # No login required for insecure registry
 
           # Create app directory
           mkdir -p /opt/swarm/apps/$APP_NAME
@@ -63,7 +74,7 @@ jobs:
           version: '3.8'
           services:
             app:
-              image: 157.180.69.112:5000/$APP_NAME:develop-latest
+              image: 157.180.69.112:5000/$APP_NAME:${{ github.ref_name }}-latest
               deploy:
                 replicas: 1
                 update_config:
@@ -91,64 +102,4 @@ jobs:
           sleep 30
 
           echo "✅ Deployment completed for $DOMAIN"
-          echo "🌐 Access your app at: http://$DOMAIN"
-
-  deploy-prod:
-    needs: build-and-push
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-    - name: Deploy to Production
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.SWARM_HOST }}
-        username: root
-        key: ${{ secrets.SWARM_SSH_KEY }}
-        script: |
-          set -e
-          echo "🚀 Starting deployment for PRODUCTION environment..."
-
-          APP_NAME="${{ github.event.repository.name }}"
-          ENVIRONMENT="prod"
-          DOMAIN="$APP_NAME.cortanexai.com"
-          STACK_NAME="$APP_NAME-$ENVIRONMENT"
-
-          # Create app directory
-          mkdir -p /opt/swarm/apps/$APP_NAME
-          cd /opt/swarm/apps/$APP_NAME
-
-          # Create docker-compose file
-          cat > docker-compose.$ENVIRONMENT.yml << DOCKERCOMPOSE
-          version: '3.8'
-          services:
-            app:
-              image: 157.180.69.112:5000/$APP_NAME:main-latest
-              deploy:
-                replicas: 2
-                update_config:
-                  parallelism: 1
-                  delay: 30s
-                restart_policy:
-                  condition: on-failure
-              networks:
-                - traefik-public
-              labels:
-                - "traefik.enable=true"
-                - "traefik.docker.network=traefik-public"
-                - "traefik.http.services.$STACK_NAME.loadbalancer.server.port=8000"
-                - "traefik.http.routers.$STACK_NAME.rule=Host(\`$DOMAIN\`)"
-                - "traefik.http.routers.$STACK_NAME.entrypoints=web"
-          networks:
-            traefik-public:
-              external: true
-          DOCKERCOMPOSE
-
-          # Deploy stack
-          docker stack deploy -c docker-compose.$ENVIRONMENT.yml $STACK_NAME --with-registry-auth
-
-          echo "⏳ Waiting for service to start..."
-          sleep 30
-
-          echo "✅ PRODUCTION deployment completed for $DOMAIN"
           echo "🌐 Access your app at: http://$DOMAIN"
