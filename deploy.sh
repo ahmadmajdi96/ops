@@ -3,10 +3,13 @@ set -e
 
 ENVIRONMENT=$1
 COMMIT_SHA=$2
-APP_NAME="your-fastapi-app"
+APP_NAME="${{ github.event.repository.name }}"  # This will be replaced by GitHub
 REGISTRY_URL="157.180.69.112:5000"
 
-echo "🚀 Deploying $APP_NAME to $ENVIRONMENT environment..."
+echo "🚀 Deploying to $ENVIRONMENT environment..."
+
+# Use direct IP in image tags
+IMAGE_TAG="157.180.69.112:5000/$APP_NAME:$ENVIRONMENT-latest"
 
 
 if ! sudo grep -q "157.180.69.112:5000" /etc/docker/daemon.json 2>/dev/null; then
